@@ -1,0 +1,31 @@
+# Android / Gradle / Kotlin
+.gradle/
+.kotlin/
+**/build/
+android/local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+.idea/
+*.iml
+captures/
+.cxx/
+
+# Windows / .NET / Visual Studio
+.vs/
+**/bin/
+**/obj/
+**/publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+
+# OS / Misc
+.DS_Store
+Thumbs.db
+*.log

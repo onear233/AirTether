@@ -1,0 +1,3 @@
+-keep class com.bthotspot.android.hotspot.ShizukuHotspotUserService { *; }
+-keep class com.bthotspot.android.hotspot.RootTetherMain { *; }
+-keep class com.bthotspot.android.hotspot.IHotspotUserService** { *; }

@@ -1,0 +1,345 @@
+<Window x:Class="AirTether.Views.FlyoutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AirTether"
+        Icon="pack://application:,,,/Assets/AirTether.ico"
+        Width="360"
+        SizeToContent="Height"
+        MaxHeight="540"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ResizeMode="NoResize">
+
+    <Window.Resources>
+        <Style x:Key="Win10FlatButton" TargetType="Button">
+            <Setter Property="Background" Value="#2E2E2E"/>
+            <Setter Property="Foreground" Value="#F2F2F2"/>
+            <Setter Property="BorderBrush" Value="#44FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3E3E3E"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#77FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#505050"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="#EA1F1F1F"
+            BorderBrush="#38FFFFFF"
+            BorderThickness="1"
+            Padding="16">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.55" Color="Black"/>
+        </Border.Effect>
+
+        <StackPanel>
+            <!-- Top Phone Status Header -->
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Signal Bars + Network Type -->
+                <Border Grid.Column="0"
+                        Width="44" Height="44"
+                        Background="#28FFFFFF"
+                        Padding="6"
+                        Margin="0,0,12,0">
+                    <Grid>
+                        <TextBlock x:Name="TbNetTag"
+                                   Text=""
+                                   Foreground="White"
+                                   FontFamily="Segoe UI"
+                                   FontSize="9"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Top"/>
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom">
+                            <Border x:Name="Bar1" Width="4" Height="7" Margin="1,0" VerticalAlignment="Bottom" Background="#44FFFFFF"/>
+                            <Border x:Name="Bar2" Width="4" Height="12" Margin="1,0" VerticalAlignment="Bottom" Background="#44FFFFFF"/>
+                            <Border x:Name="Bar3" Width="4" Height="17" Margin="1,0" VerticalAlignment="Bottom" Background="#44FFFFFF"/>
+                            <Border x:Name="Bar4" Width="4" Height="22" Margin="1,0" VerticalAlignment="Bottom" Background="#44FFFFFF"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Device Name & Connection State -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="TbDeviceName"
+                               Text="未连接手机"
+                               Foreground="White"
+                               FontFamily="Segoe UI, Microsoft YaHei UI"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="TbSubStatus"
+                               Text="请扫描并连接手机 BLE 服务"
+                               Foreground="#B0FFFFFF"
+                               FontFamily="Segoe UI, Microsoft YaHei UI"
+                               FontSize="12"
+                               Margin="0,2,0,0"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <!-- Battery -->
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="8,0,0,0">
+                    <TextBlock x:Name="TbBattery"
+                               Text=""
+                               Foreground="#CCFFFFFF"
+                               FontFamily="Segoe UI, Microsoft YaHei UI"
+                               FontSize="12"
+                               HorizontalAlignment="Right"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Win10 Action Center Hotspot Tile -->
+            <Button x:Name="BtnHotspotTile"
+                    Click="BtnHotspotTile_Click"
+                    Height="62"
+                    Margin="0,0,0,14"
+                    Cursor="Hand"
+                    BorderThickness="1"
+                    BorderBrush="#33FFFFFF"
+                    Background="#2D2D2D">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="TileBd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="14,10">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TileBd" Property="BorderBrush" Value="#88FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TileBd" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="&#xE704;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="20"
+                               Foreground="White"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0"/>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="移动热点"
+                                   Foreground="White"
+                                   FontFamily="Segoe UI, Microsoft YaHei UI"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TbHotspotSubtitle"
+                                   Text="未连接"
+                                   Foreground="#D0FFFFFF"
+                                   FontFamily="Segoe UI, Microsoft YaHei UI"
+                                   FontSize="12"
+                                   Margin="0,2,0,0"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="TbHotspotStatePill"
+                               Grid.Column="2"
+                               Text="关"
+                               Foreground="White"
+                               FontFamily="Segoe UI, Microsoft YaHei UI"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Button>
+
+            <!-- Divider -->
+            <Border Height="1" Background="#22FFFFFF" Margin="0,0,0,12"/>
+
+            <!-- Bluetooth Management Header -->
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="蓝牙设备"
+                           Foreground="#E6FFFFFF"
+                           FontFamily="Segoe UI, Microsoft YaHei UI"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+
+                <Button x:Name="BtnScan"
+                        Grid.Column="1"
+                        Style="{StaticResource Win10FlatButton}"
+                        Content="扫描设备"
+                        Click="BtnScan_Click"
+                        Margin="0,0,6,0"/>
+
+                <Button x:Name="BtnDisconnect"
+                        Grid.Column="2"
+                        Style="{StaticResource Win10FlatButton}"
+                        Content="断开"
+                        Click="BtnDisconnect_Click"
+                        Visibility="Collapsed"/>
+            </Grid>
+
+            <!-- Discovered Devices List -->
+            <Border Background="#18FFFFFF"
+                    BorderBrush="#22FFFFFF"
+                    BorderThickness="1"
+                    MaxHeight="155"
+                    Margin="0,0,0,10">
+                <Grid>
+                    <ListBox x:Name="LvDevices"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="White"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             MouseDoubleClick="LvDevices_MouseDoubleClick">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="10,7"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="ItemBd"
+                                                    Background="{TemplateBinding Background}"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ItemBd" Property="Background" Value="#24FFFFFF"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBd" Property="Background" Value="#330078D7"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding DisplayTitle}"
+                                                   Foreground="White"
+                                                   FontFamily="Segoe UI, Microsoft YaHei UI"
+                                                   FontSize="13"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Subtitle}"
+                                                   Foreground="#99FFFFFF"
+                                                   FontFamily="Segoe UI"
+                                                   FontSize="11"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Style="{StaticResource Win10FlatButton}"
+                                            Content="连接"
+                                            Tag="{Binding}"
+                                            Click="BtnConnectItem_Click"
+                                            VerticalAlignment="Center"
+                                            Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock x:Name="TbEmptyDevices"
+                               Text="暂无发现设备，请点击“扫描设备”并确保手机端已开启 BLE 服务"
+                               Foreground="#88FFFFFF"
+                               FontFamily="Segoe UI, Microsoft YaHei UI"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               Margin="14"/>
+                </Grid>
+            </Border>
+
+            <!-- Auto Reconnect & Footer -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <CheckBox x:Name="ChkAutoReconnect"
+                          Grid.Column="0"
+                          Content="自动重连上次设备"
+                          Foreground="#CCFFFFFF"
+                          FontFamily="Segoe UI, Microsoft YaHei UI"
+                          FontSize="12"
+                          VerticalAlignment="Center"
+                          Checked="ChkAutoReconnect_Changed"
+                          Unchecked="ChkAutoReconnect_Changed"/>
+
+                <Button x:Name="BtnExit"
+                        Grid.Column="1"
+                        Style="{StaticResource Win10FlatButton}"
+                        Content="退出程序"
+                        Click="BtnExit_Click"/>
+            </Grid>
+
+            <TextBlock x:Name="TbFooterNote"
+                       Text=""
+                       Foreground="#88FFFFFF"
+                       FontFamily="Segoe UI, Microsoft YaHei UI"
+                       FontSize="11"
+                       Margin="0,8,0,0"
+                       TextTrimming="CharacterEllipsis"
+                       Visibility="Collapsed"/>
+        </StackPanel>
+    </Border>
+</Window>

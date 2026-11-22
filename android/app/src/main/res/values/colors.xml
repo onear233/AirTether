@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent_blue">#0078D7</color>
+    <color name="status_green">#2E7D32</color>
+    <color name="status_red">#C62828</color>
+    <color name="status_amber">#EF6C00</color>
+</resources>

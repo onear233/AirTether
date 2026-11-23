@@ -18,9 +18,14 @@
 - **Win10 风格双托盘图标**：
   - **网络制式图标**：独立显示 `5G` / `4G` / `3G` / `2G`（右键支持自定义显示文本或恢复跟随手机）。
   - **信号格图标**：独立显示 4 格移动信号；未连接手机时信号格清零并在右下角显示 Win10 风格红色 `×`，热点未开启时右下角同样显示 `×`。
+  
 - **Win10 风格右下角 Flyout 控制面板**：深色半透明质感，精确定位在任务栏上方，失焦自动收起；可查看连接状态、信号、网络制式、电量与热点 SSID，支持一键开关热点与扫描/连接/自动重连蓝牙设备。
+
 - **Windows 原生来电提醒**：使用系统级 `ToastNotificationManager`（`incomingCall` 场景），显示默认圆形头像、来电号码与设备来源，带原生来电铃声及 **“拒接”** / **“静音”** 按钮。
 
+| Android端页面 | Windows页面 |
+| :---: | :---: |
+| <img src="assets/android_main.jpg" height="400" alt="Android" /> | <img src="assets/windows_main.png" height="350" alt="Windows" /> |
 ---
 
 ## BLE GATT 协议

@@ -3,12 +3,19 @@ package com.bthotspot.android
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.bthotspot.android.ble.BleHotspotService
 import com.bthotspot.android.ble.ServiceStateHolder
@@ -30,24 +37,30 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        updatePermissionStatus()
+        updateAuthAndModeUi()
         localMonitor?.refreshSnapshot()
     }
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
         val granted = grantResult == PackageManager.PERMISSION_GRANTED
         ServiceStateHolder.addLog(if (granted) "Shizuku 权限已授予" else "Shizuku 权限被拒绝")
-        updatePrivilegeStatus()
+        updateAuthAndModeUi()
+        if (granted) {
+            triggerAutoSsidRefresh(silent = true)
+        }
     }
 
     private val shizukuBinderListener = Shizuku.OnBinderReceivedListener {
-        updatePrivilegeStatus()
+        updateAuthAndModeUi()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setupImmersiveStatusBar()
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
 
         hotspotController = HotspotController(this)
         localMonitor = PhoneStateMonitor(this, hotspotController).also { it.start() }
@@ -57,8 +70,47 @@ class MainActivity : AppCompatActivity() {
 
         setupUi()
         observeState()
-        updatePermissionStatus()
-        checkPrivileges()
+        updateAuthAndModeUi()
+        checkPrivilegesAndSsid()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setupImmersiveStatusBar() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isNight
+            isAppearanceLightNavigationBars = !isNight
+        }
+    }
+
+    private fun applySystemBarInsets() {
+        val density = resources.displayMetrics.density
+        val pad18 = (18 * density).toInt()
+        val pad12 = (12 * density).toInt()
+
+        // Disable BottomNavigationView's default internal inset padding so we control it cleanly
+        ViewCompat.setOnApplyWindowInsetsListener(binding.bottomNav) { v, insets ->
+            val navInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, 0, 0, navInsets.bottom)
+            insets
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.rootContainer) { view, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(bars.left, 0, bars.right, 0)
+            binding.topHeaderBar.setPadding(pad18, bars.top + pad12, pad18, pad12)
+            windowInsets
+        }
     }
 
     override fun onDestroy() {
@@ -70,20 +122,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUi() {
-        when (hotspotController.mode) {
-            HotspotMode.AUTO -> binding.rbModeAuto.isChecked = true
-            HotspotMode.ROOT -> binding.rbModeRoot.isChecked = true
-            HotspotMode.SHIZUKU -> binding.rbModeShizuku.isChecked = true
+        // Bottom Navigation Bar switching (3 Tabs: 控制台 / 运行日志 / 设置)
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_home -> {
+                    binding.tabDashboard.visibility = View.VISIBLE
+                    binding.tabLogs.visibility = View.GONE
+                    binding.tabSettings.visibility = View.GONE
+                    true
+                }
+                R.id.nav_logs -> {
+                    binding.tabDashboard.visibility = View.GONE
+                    binding.tabLogs.visibility = View.VISIBLE
+                    binding.tabSettings.visibility = View.GONE
+                    true
+                }
+                R.id.nav_settings -> {
+                    binding.tabDashboard.visibility = View.GONE
+                    binding.tabLogs.visibility = View.GONE
+                    binding.tabSettings.visibility = View.VISIBLE
+                    true
+                }
+                else -> false
+            }
         }
 
-        binding.rgMode.setOnCheckedChangeListener { _, checkedId ->
+        // Mode toggle group (inside Settings tab)
+        val initialBtnId = when (hotspotController.mode) {
+            HotspotMode.AUTO -> R.id.btnModeAuto
+            HotspotMode.SHIZUKU -> R.id.btnModeShizuku
+            HotspotMode.ROOT -> R.id.btnModeRoot
+        }
+        binding.toggleModeGroup.check(initialBtnId)
+
+        binding.toggleModeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
             val mode = when (checkedId) {
-                R.id.rbModeRoot -> HotspotMode.ROOT
-                R.id.rbModeShizuku -> HotspotMode.SHIZUKU
+                R.id.btnModeRoot -> HotspotMode.ROOT
+                R.id.btnModeShizuku -> HotspotMode.SHIZUKU
                 else -> HotspotMode.AUTO
             }
-            hotspotController.mode = mode
-            ServiceStateHolder.addLog("控制模式切换为: ${mode.displayName}")
+            if (hotspotController.mode != mode) {
+                hotspotController.mode = mode
+                ServiceStateHolder.addLog("控制模式切换为: ${mode.displayName}")
+                updateAuthAndModeUi()
+            }
         }
 
         binding.btnRequestPerms.setOnClickListener {
@@ -91,15 +174,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnRequestShizuku.setOnClickListener {
-            if (!hotspotController.isShizukuAvailable()) {
-                Toast.makeText(this, "Shizuku 服务未运行，请先启动 Shizuku", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (hotspotController.isShizukuGranted()) {
-                Toast.makeText(this, "Shizuku 已授权", Toast.LENGTH_SHORT).show()
+            requestOrCheckShizuku()
+        }
+
+        binding.btnSettingsCheckPerms.setOnClickListener {
+            val missing = missingPermissions()
+            if (missing.isEmpty()) {
+                Toast.makeText(this, "所有运行时权限均已授予", Toast.LENGTH_SHORT).show()
             } else {
-                Shizuku.requestPermission(100)
+                requestRuntimePermissions()
             }
+        }
+
+        binding.btnSettingsCheckShizuku.setOnClickListener {
+            checkPrivilegesAndSsid()
+            requestOrCheckShizuku()
         }
 
         binding.btnToggleService.setOnClickListener {
@@ -111,7 +200,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 if (missingPermissions().isNotEmpty()) {
                     requestRuntimePermissions()
-                    Toast.makeText(this, "请先授予所需权限", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "请先授予所需运行时权限", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 val intent = Intent(this, BleHotspotService::class.java).apply {
@@ -123,6 +212,71 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnTestHotspotOn.setOnClickListener { testHotspot(true) }
         binding.btnTestHotspotOff.setOnClickListener { testHotspot(false) }
+
+        // Hotspot SSID configuration (inside Settings tab)
+        binding.etManualSsid.setText(hotspotController.manualSsid)
+        updateSsidInfoText()
+
+        binding.btnRefreshSsid.setOnClickListener {
+            triggerAutoSsidRefresh(silent = false)
+        }
+
+        binding.btnSaveManualSsid.setOnClickListener {
+            val input = binding.etManualSsid.text?.toString()?.trim() ?: ""
+            hotspotController.manualSsid = input
+            localMonitor?.refreshSnapshot()
+            updateSsidInfoText()
+            val msg = if (input.isBlank()) "已清除手动 SSID，将使用自动读取值" else "已保存热点 SSID: $input"
+            ServiceStateHolder.addLog(msg)
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnClearLogs.setOnClickListener {
+            ServiceStateHolder.clearLogs()
+        }
+    }
+
+    private fun requestOrCheckShizuku() {
+        if (!hotspotController.isShizukuAvailable()) {
+            Toast.makeText(this, "Shizuku 服务未运行，请先启动 Shizuku", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!hotspotController.isShizukuGranted()) {
+            Shizuku.requestPermission(100)
+        } else {
+            Toast.makeText(this, "Shizuku 已授权就绪", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun triggerAutoSsidRefresh(silent: Boolean) {
+        lifecycleScope.launch {
+            val ssid = hotspotController.refreshAutoSsid()
+            localMonitor?.refreshSnapshot()
+            updateSsidInfoText()
+            if (!silent) {
+                if (ssid.isNotBlank()) {
+                    ServiceStateHolder.addLog("自动读取到热点 SSID: $ssid")
+                    Toast.makeText(this@MainActivity, "读取成功: $ssid", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "未能从系统读取 SSID，可在下方手动填写兜底", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun updateSsidInfoText() {
+        val auto = hotspotController.cachedAutoSsid
+        val manual = hotspotController.manualSsid
+        binding.tvAutoSsidInfo.text = when {
+            manual.isNotBlank() && auto.isNotBlank() ->
+                "当前生效: $manual (手动指定) · 系统读取: $auto"
+            manual.isNotBlank() ->
+                "当前生效: $manual (手动兜底) · 系统读取: 未读取到"
+            auto.isNotBlank() ->
+                "当前生效: $auto (系统自动读取)"
+            else ->
+                "系统读取: 未读取到（可在下方手动填写热点名称供电脑端自动连接）"
+        }
     }
 
     private fun testHotspot(enable: Boolean) {
@@ -133,6 +287,10 @@ class MainActivity : AppCompatActivity() {
             if (result.success) {
                 ServiceStateHolder.addLog("本地${label}热点成功")
                 Toast.makeText(this@MainActivity, "热点${label}成功", Toast.LENGTH_SHORT).show()
+                if (enable) {
+                    hotspotController.refreshAutoSsid()
+                    updateSsidInfoText()
+                }
             } else {
                 ServiceStateHolder.addLog("本地${label}热点失败: ${result.error}")
                 Toast.makeText(this@MainActivity, "失败: ${result.error}", Toast.LENGTH_LONG).show()
@@ -151,11 +309,27 @@ class MainActivity : AppCompatActivity() {
                 Triple(running, adv, count)
             }.collect { (running, adv, count) ->
                 binding.btnToggleService.text = if (running) "停止 BLE 后台服务" else "启动 BLE 后台服务"
-                binding.tvBleState.text = when {
-                    !running -> "BLE 服务: 未运行"
-                    count > 0 -> "BLE 服务: 运行中 · 已连接 $count 台电脑"
-                    adv -> "BLE 服务: 广播中 · 等待电脑连接"
-                    else -> "BLE 服务: 运行中 (未广播)"
+                when {
+                    !running -> {
+                        binding.tvBleState.text = "服务未启动 · 点击下方按钮开启广播"
+                        binding.tvBleBadge.text = "已停止"
+                        binding.tvBleBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_red))
+                    }
+                    count > 0 -> {
+                        binding.tvBleState.text = "正在协同 · 已连接 $count 台电脑"
+                        binding.tvBleBadge.text = "已连接 ($count)"
+                        binding.tvBleBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_green))
+                    }
+                    adv -> {
+                        binding.tvBleState.text = "BLE 广播中 · 等待电脑端连接"
+                        binding.tvBleBadge.text = "广播中"
+                        binding.tvBleBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_blue))
+                    }
+                    else -> {
+                        binding.tvBleState.text = "服务运行中 (广播未就绪)"
+                        binding.tvBleBadge.text = "运行中"
+                        binding.tvBleBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_amber))
+                    }
                 }
             }
         }
@@ -165,16 +339,17 @@ class MainActivity : AppCompatActivity() {
             combine(ServiceStateHolder.isRunning, ServiceStateHolder.status, monitorFlow) { running, svcSt, locSt ->
                 if (running) svcSt else locSt
             }.collect { st ->
-                val hsText = when {
+                binding.tvHotspotState.text = when {
                     st.isTransitioning -> "切换中..."
                     st.hotspotEnabled -> "已开启"
                     else -> "已关闭"
                 }
-                val ssidPart = if (st.ssid.isNotBlank()) " (${st.ssid})" else ""
-                binding.tvHotspotState.text = "便携式热点: $hsText$ssidPart"
-                val batText = if (st.batteryPercent >= 0) "${st.batteryPercent}%" else "--%"
-                binding.tvNetworkState.text =
-                    "移动网络: ${st.networkType.label} | 信号: ${st.signalBars}/4 | 电量: $batText"
+                binding.tvHotspotSsidSub.text =
+                    if (st.ssid.isNotBlank()) "SSID: ${st.ssid}" else "SSID: 未设置（可在设置页填写）"
+                binding.tvNetTypeValue.text = st.networkType.label
+                binding.tvSignalValue.text = "${st.signalBars} / 4 格"
+                binding.tvBatteryValue.text =
+                    if (st.batteryPercent >= 0) "${st.batteryPercent}%" else "--%"
             }
         }
 
@@ -215,41 +390,70 @@ class MainActivity : AppCompatActivity() {
     private fun requestRuntimePermissions() {
         val missing = missingPermissions()
         if (missing.isEmpty()) {
-            Toast.makeText(this, "所需运行时权限已全部授予", Toast.LENGTH_SHORT).show()
-            updatePermissionStatus()
+            updateAuthAndModeUi()
         } else {
             permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
-    private fun updatePermissionStatus() {
-        val missing = missingPermissions()
-        binding.tvPermStatus.text = if (missing.isEmpty()) {
-            "运行时权限: 已全部授予"
-        } else {
-            "运行时权限: 缺少 ${missing.size} 项 (${missing.joinToString { it.substringAfterLast('.') }})"
-        }
-    }
-
-    private fun checkPrivileges() {
-        updatePrivilegeStatus()
+    private fun checkPrivilegesAndSsid() {
+        updateAuthAndModeUi()
         lifecycleScope.launch {
             rootAvailable = hotspotController.isRootAvailable()
-            updatePrivilegeStatus()
+            updateAuthAndModeUi()
+            triggerAutoSsidRefresh(silent = true)
         }
     }
 
-    private fun updatePrivilegeStatus() {
-        val rootText = when (rootAvailable) {
-            null -> "检测中"
-            true -> "可用"
-            false -> "不可用"
+    private fun updateAuthAndModeUi() {
+        val missingPerms = missingPermissions()
+        val hasMissingPerms = missingPerms.isNotEmpty()
+        binding.layoutPermWarning.visibility = if (hasMissingPerms) View.VISIBLE else View.GONE
+        if (hasMissingPerms) {
+            binding.tvPermWarning.text = "缺少 ${missingPerms.size} 项运行时权限（蓝牙 / 电话状态）"
         }
-        val shizukuText = when {
-            !hotspotController.isShizukuAvailable() -> "未运行"
-            hotspotController.isShizukuGranted() -> "已授权"
-            else -> "运行中 (未授权)"
+
+        val shizukuRunning = hotspotController.isShizukuAvailable()
+        val shizukuGranted = hotspotController.isShizukuGranted()
+        val isRootOk = rootAvailable == true
+        val mode = hotspotController.mode
+
+        val (statusText, statusColorRes, privWarnText, showShizukuBtn) = when (mode) {
+            HotspotMode.SHIZUKU -> when {
+                shizukuGranted -> Quad("当前运行：Shizuku 已就绪", R.color.status_green, null, false)
+                shizukuRunning -> Quad("未就绪：Shizuku 待授权", R.color.status_amber, "当前为 Shizuku 模式，请点击右侧按钮完成授权", true)
+                else -> Quad("未就绪：Shizuku 未启动", R.color.status_red, "当前为 Shizuku 模式，请先启动 Shizuku 服务", false)
+            }
+            HotspotMode.ROOT -> when (rootAvailable) {
+                null -> Quad("正在检测 Root...", R.color.status_amber, null, false)
+                true -> Quad("当前运行：Root 已就绪", R.color.status_green, null, false)
+                false -> Quad("未就绪：无 Root 权限", R.color.status_red, "当前为 Root 模式，但未检测到 Root 权限", false)
+            }
+            HotspotMode.AUTO -> when {
+                shizukuGranted -> Quad("当前运行：Shizuku 已就绪", R.color.status_green, null, false)
+                isRootOk -> Quad("当前运行：Root 已就绪", R.color.status_green, null, false)
+                rootAvailable == null -> Quad("正在检测运行环境...", R.color.status_amber, null, false)
+                shizukuRunning -> Quad("未就绪：待授权 Shizuku", R.color.status_amber, "检测到 Shizuku 正在运行，请授权以启用热点控制", true)
+                else -> Quad("未就绪：缺少 Shizuku 或 Root", R.color.status_red, "请启动并授权 Shizuku（或授予 Root 权限）以控制热点", false)
+            }
         }
-        binding.tvPrivilegeStatus.text = "Root: $rootText | Shizuku: $shizukuText"
+
+        val color = ContextCompat.getColor(this, statusColorRes)
+        binding.tvActiveModeStatus.text = statusText
+        binding.tvActiveModeStatus.setTextColor(color)
+        binding.tvSettingsModeStatus.text = statusText
+        binding.tvSettingsModeStatus.setTextColor(color)
+
+        val hasPrivWarning = privWarnText != null
+        binding.layoutPrivWarning.visibility = if (hasPrivWarning) View.VISIBLE else View.GONE
+        if (hasPrivWarning) {
+            binding.tvPrivWarning.text = privWarnText
+            binding.btnRequestShizuku.visibility = if (showShizukuBtn) View.VISIBLE else View.GONE
+        }
+
+        binding.cardAuthWarning.visibility =
+            if (hasMissingPerms || hasPrivWarning) View.VISIBLE else View.GONE
     }
+
+    private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 }

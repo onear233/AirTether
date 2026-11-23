@@ -11,21 +11,22 @@ public partial class FlyoutWindow : Window
 {
     private readonly BleHotspotClient _client;
     private readonly AppSettings _settings;
+    private readonly Func<Task> _toggleHotspotAsync;
     private readonly Action _exitAction;
-    private bool _suppressCheckEvent;
 
     public DateTime LastHiddenUtc { get; private set; } = DateTime.MinValue;
 
-    public FlyoutWindow(BleHotspotClient client, AppSettings settings, Action exitAction)
+    public FlyoutWindow(
+        BleHotspotClient client,
+        AppSettings settings,
+        Func<Task> toggleHotspotAsync,
+        Action exitAction)
     {
         InitializeComponent();
         _client = client;
         _settings = settings;
+        _toggleHotspotAsync = toggleHotspotAsync;
         _exitAction = exitAction;
-
-        _suppressCheckEvent = true;
-        ChkAutoReconnect.IsChecked = _settings.AutoReconnect;
-        _suppressCheckEvent = false;
 
         Deactivated += (_, _) =>
         {
@@ -46,6 +47,15 @@ public partial class FlyoutWindow : Window
 
         RefreshUi();
         RefreshDeviceList();
+    }
+
+    public void SetWifiStatusMessage(string message)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            TbWifiStatus.Text = message;
+            TbWifiStatus.ToolTip = string.IsNullOrWhiteSpace(message) ? null : message;
+        });
     }
 
     public void ShowFlyout()
@@ -112,6 +122,10 @@ public partial class FlyoutWindow : Window
 
         TbBattery.Text = connected && st.BatteryPercent >= 0 ? $"电量 {st.BatteryPercent}%" : "";
 
+        string displaySsid = !string.IsNullOrWhiteSpace(st.Ssid)
+            ? st.Ssid
+            : _settings.FallbackHotspotSsid;
+
         // Hotspot Tile
         BtnHotspotTile.IsEnabled = connected;
         if (!connected)
@@ -129,13 +143,13 @@ public partial class FlyoutWindow : Window
         else if (st.HotspotEnabled)
         {
             BtnHotspotTile.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0x78, 0xD7));
-            TbHotspotSubtitle.Text = string.IsNullOrWhiteSpace(st.Ssid) ? "已开启" : $"已开启 · {st.Ssid}";
+            TbHotspotSubtitle.Text = string.IsNullOrWhiteSpace(displaySsid) ? "已开启" : $"已开启 · {displaySsid}";
             TbHotspotStatePill.Text = "开";
         }
         else
         {
             BtnHotspotTile.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x2D, 0x2D));
-            TbHotspotSubtitle.Text = string.IsNullOrWhiteSpace(st.Ssid) ? "已关闭 · 点击开启" : $"已关闭 · {st.Ssid}";
+            TbHotspotSubtitle.Text = string.IsNullOrWhiteSpace(displaySsid) ? "已关闭 · 点击开启" : $"已关闭 · {displaySsid}";
             TbHotspotStatePill.Text = "关";
         }
 
@@ -166,7 +180,7 @@ public partial class FlyoutWindow : Window
     {
         if (_client.ConnectionState != BleConnectionState.Connected) return;
         BtnHotspotTile.IsEnabled = false;
-        await _client.SendCommandAsync(BleCommand.HotspotToggle);
+        await _toggleHotspotAsync();
         BtnHotspotTile.IsEnabled = _client.ConnectionState == BleConnectionState.Connected;
     }
 
@@ -203,11 +217,12 @@ public partial class FlyoutWindow : Window
         }
     }
 
-    private void ChkAutoReconnect_Changed(object sender, RoutedEventArgs e)
+    private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        if (_suppressCheckEvent) return;
-        _settings.AutoReconnect = ChkAutoReconnect.IsChecked == true;
-        _settings.Save();
+        Hide();
+        var dlg = new SettingsWindow(_settings);
+        dlg.ShowDialog();
+        RefreshUi();
     }
 
     private void BtnExit_Click(object sender, RoutedEventArgs e)

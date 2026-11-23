@@ -308,25 +308,42 @@
                 </Grid>
             </Border>
 
-            <!-- Auto Reconnect & Footer -->
+            <!-- Footer Toolbar: Settings IconButton & Exit -->
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <CheckBox x:Name="ChkAutoReconnect"
-                          Grid.Column="0"
-                          Content="自动重连上次设备"
-                          Foreground="#CCFFFFFF"
-                          FontFamily="Segoe UI, Microsoft YaHei UI"
-                          FontSize="12"
-                          VerticalAlignment="Center"
-                          Checked="ChkAutoReconnect_Changed"
-                          Unchecked="ChkAutoReconnect_Changed"/>
+                <Button x:Name="BtnSettings"
+                        Grid.Column="0"
+                        Style="{StaticResource Win10FlatButton}"
+                        Width="34"
+                        Height="30"
+                        Padding="0"
+                        ToolTip="设置"
+                        Click="BtnSettings_Click">
+                    <TextBlock Text="&#xE713;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="15"
+                               Foreground="#F2F2F2"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+
+                <TextBlock x:Name="TbWifiStatus"
+                           Grid.Column="1"
+                           Text=""
+                           Foreground="#A8FFFFFF"
+                           FontFamily="Segoe UI, Microsoft YaHei UI"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="10,0"
+                           TextTrimming="CharacterEllipsis"/>
 
                 <Button x:Name="BtnExit"
-                        Grid.Column="1"
+                        Grid.Column="2"
                         Style="{StaticResource Win10FlatButton}"
                         Content="退出程序"
                         Click="BtnExit_Click"/>

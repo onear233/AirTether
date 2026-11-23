@@ -6,4 +6,5 @@ interface IHotspotUserService {
     String getLastError() = 2;
     boolean endCall() = 3;
     boolean silenceRinger() = 4;
+    String getHotspotSsid() = 5;
 }

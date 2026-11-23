@@ -73,6 +73,14 @@ class HotspotController(private val context: Context) {
         get() = HotspotMode.fromKey(prefs.getString("hotspot_mode", HotspotMode.AUTO.key))
         set(value) = prefs.edit().putString("hotspot_mode", value.key).apply()
 
+    var manualSsid: String
+        get() = prefs.getString("manual_ssid", "")?.trim() ?: ""
+        set(value) = prefs.edit().putString("manual_ssid", value.trim()).apply()
+
+    var cachedAutoSsid: String
+        get() = prefs.getString("cached_auto_ssid", "")?.trim() ?: ""
+        private set(value) = prefs.edit().putString("cached_auto_ssid", value.trim()).apply()
+
     fun isShizukuAvailable(): Boolean {
         return try {
             Shizuku.pingBinder()
@@ -132,14 +140,14 @@ class HotspotController(private val context: Context) {
         }
     }
 
-    fun getHotspotSsid(): String {
+    fun getDirectHotspotSsid(): String {
         val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             runCatching {
                 val config = wifiManager.javaClass.getMethod("getSoftApConfiguration").invoke(wifiManager)
                 if (config != null) {
                     val ssid = config.javaClass.getMethod("getSsid").invoke(config) as? String
-                    if (!ssid.isNullOrBlank()) return ssid
+                    if (!ssid.isNullOrBlank()) return ssid.trim('"')
                 }
             }
         }
@@ -149,10 +157,67 @@ class HotspotController(private val context: Context) {
             if (config != null) {
                 val ssidField = config.javaClass.getField("SSID")
                 val ssid = ssidField.get(config) as? String
-                if (!ssid.isNullOrBlank()) return ssid
+                if (!ssid.isNullOrBlank()) return ssid.trim('"')
             }
         }
         return ""
+    }
+
+    /**
+     * Returns the effective Hotspot SSID:
+     * 1. Direct or privileged auto-detected SSID if available (unless overridden by manualSsid)
+     * 2. Fallback to user-configured manualSsid
+     */
+    fun getHotspotSsid(): String {
+        val direct = getDirectHotspotSsid()
+        if (direct.isNotBlank()) {
+            cachedAutoSsid = direct
+        }
+        val auto = direct.ifBlank { cachedAutoSsid }
+        val manual = manualSsid
+        return manual.ifBlank { auto }
+    }
+
+    /**
+     * Attempts to read the hotspot SSID via direct API, Shizuku UserService, or Root config file.
+     */
+    suspend fun refreshAutoSsid(): String = withContext(Dispatchers.IO) {
+        val direct = getDirectHotspotSsid()
+        if (direct.isNotBlank()) {
+            cachedAutoSsid = direct
+            return@withContext direct
+        }
+
+        if (isShizukuGranted()) {
+            runCatching {
+                val svc = getOrBindShizukuService()
+                val shizukuSsid = svc?.hotspotSsid?.trim() ?: ""
+                if (shizukuSsid.isNotBlank()) {
+                    cachedAutoSsid = shizukuSsid
+                    return@withContext shizukuSsid
+                }
+            }
+        }
+
+        if (isRootAvailable()) {
+            runCatching {
+                val cmd = "cat /data/misc/apexdata/com.android.wifi/WifiConfigStoreSoftAp.xml 2>/dev/null || cat /data/misc/wifi/softap.conf 2>/dev/null"
+                val proc = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+                if (proc.waitFor(4, TimeUnit.SECONDS)) {
+                    val xml = proc.inputStream.bufferedReader().readText()
+                    val m = Regex("""<string name="(?:SSID|WifiSsid)">([^<]+)</string>""").find(xml)
+                    val rootSsid = m?.groupValues?.getOrNull(1)?.trim()?.trim('"') ?: ""
+                    if (rootSsid.isNotBlank()) {
+                        cachedAutoSsid = rootSsid
+                        return@withContext rootSsid
+                    }
+                } else {
+                    proc.destroyForcibly()
+                }
+            }
+        }
+
+        cachedAutoSsid
     }
 
     suspend fun setHotspotEnabled(enabled: Boolean): TetheringHelper.Result {

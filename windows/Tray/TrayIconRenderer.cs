@@ -24,7 +24,7 @@ public static class TrayIconRenderer
         bool showCross = !connected || !status.HotspotEnabled;
 
         // Windows 10 style 4 ascending cellular bars
-        int[] barX = [2, 10, 18, 26];
+        int[] barX = [2, 9, 16, 23];
         const int barWidth = 4;
         int[] barHeights = [7, 13, 19, 25];
         const int baselineY = 28;
@@ -40,10 +40,14 @@ public static class TrayIconRenderer
             g.FillRectangle(i < activeBars ? activeBrush : inactiveBrush, rect);
         }
 
-        // Bottom-right Windows 10 style "×" badge when disconnected or hotspot is off
         if (showCross)
         {
-            var badgeRect = new Rectangle(18, 18, 13, 13);
+            // bx 越大越靠右（默认 18，可改为 19 或 20；注意画布总宽为 32）
+            int bx = 19;
+            int by = 19;
+            int bSize = 12; // 徽标直径（默认 13，改成 12 可以留出更多右移空间而不被右边缘裁切）
+
+            var badgeRect = new Rectangle(bx, by, bSize, bSize);
             using var badgeBg = new SolidBrush(Color.FromArgb(240, 210, 40, 45));
             using var badgeBorder = new Pen(Color.FromArgb(230, 24, 24, 24), 1.2f);
             g.FillEllipse(badgeBg, badgeRect);
@@ -54,8 +58,10 @@ public static class TrayIconRenderer
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
             };
-            g.DrawLine(xPen, 22f, 22f, 27f, 27f);
-            g.DrawLine(xPen, 27f, 22f, 22f, 27f);
+            float x1 = bx + 3.5f, y1 = by + 3.5f;
+            float x2 = bx + bSize - 3.5f, y2 = by + bSize - 3.5f;
+            g.DrawLine(xPen, x1, y1, x2, y2);
+            g.DrawLine(xPen, x2, y1, x1, y2);
         }
 
         return CreateIconFromBitmap(bmp);

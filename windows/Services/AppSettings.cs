@@ -14,6 +14,8 @@ public sealed class AppSettings
     public ulong? LastDeviceAddress { get; set; }
     public string LastDeviceName { get; set; } = "";
     public bool AutoReconnect { get; set; } = true;
+    public bool AutoConnectHotspotWifi { get; set; } = true;
+    public string FallbackHotspotSsid { get; set; } = "";
     public string CustomNetworkText { get; set; } = "";
 
     public static AppSettings Load()

@@ -19,12 +19,16 @@ public partial class App : System.Windows.Application
     private AppSettings? _settings;
     private BleHotspotClient? _client;
     private IncomingCallNotifier? _callNotifier;
+    private WifiAutoConnector? _wifiConnector;
     private FlyoutWindow? _flyout;
 
     private NotifyIcon? _signalNotifyIcon;
     private NotifyIcon? _networkNotifyIcon;
     private Icon? _currentSignalIcon;
     private Icon? _currentNetworkIcon;
+
+    private bool _lastKnownHotspotEnabled;
+    private bool _pendingAutoConnect;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -55,11 +59,14 @@ public partial class App : System.Windows.Application
         _settings = AppSettings.Load();
         _client = new BleHotspotClient(_settings);
         _callNotifier = new IncomingCallNotifier(_client);
-        _flyout = new FlyoutWindow(_client, _settings, ExitApplication);
+        _wifiConnector = new WifiAutoConnector();
+        _flyout = new FlyoutWindow(_client, _settings, ToggleHotspotFromUiAsync, ExitApplication);
+
+        _wifiConnector.StatusChanged += msg => _flyout.SetWifiStatusMessage(msg);
 
         SetupTrayIcons();
 
-        _client.StateChanged += () => Dispatcher.BeginInvoke(UpdateTrayIcons);
+        _client.StateChanged += () => Dispatcher.BeginInvoke(OnClientStateChanged);
         _client.CallStateChanged += call => Dispatcher.BeginInvoke(() =>
             _callNotifier?.HandleCallState(call, _client?.ConnectedDeviceName ?? "手机"));
         UpdateTrayIcons();
@@ -75,6 +82,73 @@ public partial class App : System.Windows.Application
         }
     }
 
+    private async Task ToggleHotspotFromUiAsync()
+    {
+        if (_client is null || _settings is null || _client.ConnectionState != BleConnectionState.Connected)
+            return;
+
+        bool turningOn = !_client.CurrentStatus.HotspotEnabled;
+        if (turningOn && _settings.AutoConnectHotspotWifi)
+        {
+            _pendingAutoConnect = true;
+            string ssid = ResolveTargetSsid();
+            if (!string.IsNullOrWhiteSpace(ssid))
+            {
+                _wifiConnector?.TriggerConnect(ssid);
+            }
+        }
+        else if (!turningOn)
+        {
+            _pendingAutoConnect = false;
+            _wifiConnector?.CancelPending();
+            _flyout?.SetWifiStatusMessage("");
+        }
+
+        await _client.SendCommandAsync(turningOn ? BleCommand.HotspotOn : BleCommand.HotspotOff);
+    }
+
+    private void OnClientStateChanged()
+    {
+        UpdateTrayIcons();
+
+        if (_client is null || _settings is null) return;
+
+        if (_client.ConnectionState != BleConnectionState.Connected)
+        {
+            _lastKnownHotspotEnabled = false;
+            _pendingAutoConnect = false;
+            return;
+        }
+
+        var st = _client.CurrentStatus;
+        bool becameEnabled = st.HotspotEnabled && !st.IsTransitioning && !_lastKnownHotspotEnabled;
+        if ((becameEnabled || (_pendingAutoConnect && st.HotspotEnabled && !st.IsTransitioning)) &&
+            _settings.AutoConnectHotspotWifi)
+        {
+            _pendingAutoConnect = false;
+            string ssid = ResolveTargetSsid();
+            _wifiConnector?.TriggerConnect(ssid);
+        }
+        else if (!st.HotspotEnabled && !st.IsTransitioning && !_pendingAutoConnect)
+        {
+            _wifiConnector?.CancelPending();
+        }
+
+        if (!st.IsTransitioning)
+        {
+            _lastKnownHotspotEnabled = st.HotspotEnabled;
+        }
+    }
+
+    private string ResolveTargetSsid()
+    {
+        if (_settings is not null && !string.IsNullOrWhiteSpace(_settings.FallbackHotspotSsid))
+        {
+            return _settings.FallbackHotspotSsid.Trim();
+        }
+        return _client?.CurrentStatus.Ssid.Trim() ?? "";
+    }
+
     private void SetupTrayIcons()
     {
         var signalMenu = new ContextMenuStrip();
@@ -83,13 +157,14 @@ public partial class App : System.Windows.Application
         {
             if (_client?.ConnectionState == BleConnectionState.Connected)
             {
-                await _client.SendCommandAsync(BleCommand.HotspotToggle);
+                await ToggleHotspotFromUiAsync();
             }
             else
             {
                 _flyout?.ShowFlyout();
             }
         });
+        signalMenu.Items.Add("设置...", null, (_, _) => OpenSettingsDialog());
         signalMenu.Items.Add(new ToolStripSeparator());
         signalMenu.Items.Add("退出", null, (_, _) => ExitApplication());
 
@@ -112,6 +187,7 @@ public partial class App : System.Windows.Application
         });
         networkMenu.Items.Add(new ToolStripSeparator());
         networkMenu.Items.Add("打开控制面板", null, (_, _) => _flyout?.ShowFlyout());
+        networkMenu.Items.Add("设置...", null, (_, _) => OpenSettingsDialog());
         networkMenu.Items.Add("退出", null, (_, _) => ExitApplication());
 
         _networkNotifyIcon = new NotifyIcon
@@ -121,6 +197,15 @@ public partial class App : System.Windows.Application
             Text = "AirTether - 网络制式"
         };
         _networkNotifyIcon.MouseClick += OnTrayIconMouseClick;
+    }
+
+    private void OpenSettingsDialog()
+    {
+        if (_settings is null) return;
+        _flyout?.Hide();
+        var dlg = new SettingsWindow(_settings);
+        dlg.ShowDialog();
+        _flyout?.RefreshUi();
     }
 
     private void OnTrayIconMouseClick(object? sender, MouseEventArgs args)
@@ -207,6 +292,7 @@ public partial class App : System.Windows.Application
         DisposeNotifyIcon(ref _signalNotifyIcon, ref _currentSignalIcon);
         DisposeNotifyIcon(ref _networkNotifyIcon, ref _currentNetworkIcon);
 
+        _wifiConnector?.Dispose();
         _flyout?.Close();
         _client?.Dispose();
         _activateEvent?.Dispose();
@@ -231,6 +317,7 @@ public partial class App : System.Windows.Application
     {
         DisposeNotifyIcon(ref _signalNotifyIcon, ref _currentSignalIcon);
         DisposeNotifyIcon(ref _networkNotifyIcon, ref _currentNetworkIcon);
+        _wifiConnector?.Dispose();
         _client?.Dispose();
         base.OnExit(e);
     }

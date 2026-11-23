@@ -45,6 +45,10 @@ object ServiceStateHolder {
     fun addLog(message: String) {
         val line = "[${timeFormat.format(Date())}] $message"
         val current = _logs.value
-        _logs.value = (listOf(line) + current).take(50)
+        _logs.value = (listOf(line) + current).take(100)
+    }
+
+    fun clearLogs() {
+        _logs.value = emptyList()
     }
 }

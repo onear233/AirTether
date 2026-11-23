@@ -189,6 +189,11 @@ class BleHotspotService : Service() {
 
     private fun observeStateUpdates() {
         serviceScope.launch {
+            hotspotController.refreshAutoSsid()
+            phoneStateMonitor.refreshSnapshot()
+        }
+
+        serviceScope.launch {
             phoneStateMonitor.status.collect { status ->
                 ServiceStateHolder.setStatus(status)
                 notifyAllSubscribed(status)
@@ -554,6 +559,9 @@ class BleHotspotService : Service() {
                     val result = hotspotController.setHotspotEnabled(targetOn)
                     if (result.success) {
                         ServiceStateHolder.addLog("热点${actionLabel}成功")
+                        if (targetOn) {
+                            hotspotController.refreshAutoSsid()
+                        }
                     } else {
                         ServiceStateHolder.addLog("热点${actionLabel}失败: ${result.error}")
                     }

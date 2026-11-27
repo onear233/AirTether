@@ -18,6 +18,19 @@ public sealed class AppSettings
     public string FallbackHotspotSsid { get; set; } = "";
     public string CustomNetworkText { get; set; } = "";
 
+    // Feature #2: Proximity auto-lock
+    public bool EnableProximityLock { get; set; } = false;
+    public int ProximityRssiThreshold { get; set; } = -80;
+    public int ProximityLockDelaySeconds { get; set; } = 12;
+
+    // Feature #4: Clipboard / URL handoff
+    public bool AutoOpenHandoffUrl { get; set; } = false;
+
+    // Feature #5: Battery alerts & notification mirror
+    public bool EnableBatteryAlerts { get; set; } = true;
+    public int LowBatteryThreshold { get; set; } = 20;
+    public bool EnableNotificationMirror { get; set; } = true;
+
     public static AppSettings Load()
     {
         try

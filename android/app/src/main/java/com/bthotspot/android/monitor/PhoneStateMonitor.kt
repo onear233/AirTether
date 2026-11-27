@@ -40,6 +40,7 @@ class PhoneStateMonitor(
     private var lastSignalBars = 0
     private var lastNetworkType = BleProtocol.NetworkType.NONE
     private var lastBattery = -1
+    private var lastIsCharging = false
     private var lastHotspotOn = false
     private var lastHotspotTransition = false
     private var lastSsid = ""
@@ -78,6 +79,9 @@ class PhoneStateMonitor(
                 Intent.ACTION_BATTERY_CHANGED -> {
                     val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    lastIsCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == BatteryManager.BATTERY_STATUS_FULL
                     if (level >= 0 && scale > 0) {
                         lastBattery = ((level * 100f) / scale).toInt().coerceIn(0, 100)
                         emitStatus()
@@ -155,6 +159,9 @@ class PhoneStateMonitor(
         if (batteryIntent != null) {
             val level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            lastIsCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
             if (level >= 0 && scale > 0) {
                 lastBattery = ((level * 100f) / scale).toInt().coerceIn(0, 100)
             }
@@ -323,7 +330,8 @@ class PhoneStateMonitor(
             signalBars = effectiveBars,
             networkType = effectiveType,
             batteryPercent = lastBattery,
-            ssid = lastSsid
+            ssid = lastSsid,
+            isCharging = lastIsCharging
         )
     }
 }

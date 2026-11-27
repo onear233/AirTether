@@ -1,12 +1,17 @@
 package com.bthotspot.android
 
 import android.Manifest
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,8 +28,12 @@ import com.bthotspot.android.databinding.ActivityMainBinding
 import com.bthotspot.android.hotspot.HotspotController
 import com.bthotspot.android.hotspot.HotspotMode
 import com.bthotspot.android.monitor.PhoneStateMonitor
+import com.bthotspot.android.notification.NotificationMirrorPrefs
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
 class MainActivity : AppCompatActivity() {
@@ -39,6 +48,14 @@ class MainActivity : AppCompatActivity() {
     ) {
         updateAuthAndModeUi()
         localMonitor?.refreshSnapshot()
+    }
+
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            dispatchFileToPc(uri)
+        }
     }
 
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -71,7 +88,20 @@ class MainActivity : AppCompatActivity() {
         setupUi()
         observeState()
         updateAuthAndModeUi()
+        updateNotifMirrorUi()
         checkPrivilegesAndSsid()
+        handleIncomingShareIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateNotifMirrorUi()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingShareIntent(intent)
     }
 
     @Suppress("DEPRECATION")
@@ -191,6 +221,10 @@ class MainActivity : AppCompatActivity() {
             requestOrCheckShizuku()
         }
 
+        binding.btnBatteryOptimization.setOnClickListener {
+            openBatteryOptimizationSettings()
+        }
+
         binding.btnToggleService.setOnClickListener {
             if (ServiceStateHolder.isRunning.value) {
                 val intent = Intent(this, BleHotspotService::class.java).apply {
@@ -212,6 +246,44 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnTestHotspotOn.setOnClickListener { testHotspot(true) }
         binding.btnTestHotspotOff.setOnClickListener { testHotspot(false) }
+
+        binding.btnSendClipToPc.setOnClickListener {
+            if (!ServiceStateHolder.isRunning.value || ServiceStateHolder.connectedCount.value <= 0) {
+                Toast.makeText(this, "请先启动 BLE 服务并连接电脑", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipText = cm.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim() ?: ""
+            if (clipText.isBlank()) {
+                Toast.makeText(this, "手机剪贴板为空", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val isUrl = clipText.startsWith("http://", true) || clipText.startsWith("https://", true)
+            if (BleHotspotService.sendClipboardToPc(clipText, openInBrowser = isUrl)) {
+                Toast.makeText(this, "已发送剪贴板到电脑", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnSendFileToPc.setOnClickListener {
+            if (!ServiceStateHolder.isRunning.value || ServiceStateHolder.connectedCount.value <= 0) {
+                Toast.makeText(this, "请先启动 BLE 服务并连接电脑", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            filePickerLauncher.launch(arrayOf("*/*"))
+        }
+
+        // Notification mirror settings
+        binding.swNotifMirror.isChecked = NotificationMirrorPrefs.isEnabled(this)
+        binding.swNotifMirror.setOnCheckedChangeListener { _, isChecked ->
+            NotificationMirrorPrefs.setEnabled(this, isChecked)
+            updateNotifMirrorUi()
+        }
+        binding.btnGrantNotifAccess.setOnClickListener {
+            runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        }
+        binding.btnEditNotifWhitelist.setOnClickListener {
+            showWhitelistPickerDialog()
+        }
 
         // Hotspot SSID configuration (inside Settings tab)
         binding.etManualSsid.setText(hotspotController.manualSsid)
@@ -236,6 +308,92 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun dispatchFileToPc(uri: Uri) {
+        if (!ServiceStateHolder.isRunning.value || ServiceStateHolder.connectedCount.value <= 0) {
+            Toast.makeText(this, "请先启动 BLE 服务并连接电脑后再发送文件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (BleHotspotService.sendFileToPc(uri)) {
+            Toast.makeText(this, "已启动无网快传，正在通知电脑接收...", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleIncomingShareIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val type = intent.type ?: return
+        if (type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim() ?: return
+            val isUrl = sharedText.startsWith("http://", true) || sharedText.startsWith("https://", true)
+            if (BleHotspotService.sendClipboardToPc(sharedText, openInBrowser = isUrl)) {
+                Toast.makeText(this, "已接力发送到电脑", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "请先启动 BLE 服务并连接电脑", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            if (streamUri != null) {
+                dispatchFileToPc(streamUri)
+            }
+        }
+    }
+
+    private fun updateNotifMirrorUi() {
+        val enabled = NotificationMirrorPrefs.isEnabled(this)
+        val hasAccess = NotificationMirrorPrefs.hasNotificationAccess(this)
+        val count = NotificationMirrorPrefs.getWhitelist(this).size
+        binding.tvNotifMirrorStatus.text = when {
+            !enabled -> "已关闭（白名单已选 $count 个应用）"
+            !hasAccess -> "未授予通知使用权，请点击下方按钮开启"
+            else -> "已启用 · 正在镜像 $count 个白名单应用通知"
+        }
+    }
+
+    private fun showWhitelistPickerDialog() {
+        lifecycleScope.launch {
+            val apps = withContext(Dispatchers.IO) {
+                val pm = packageManager
+                val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                val resolved = pm.queryIntentActivities(launcherIntent, 0)
+                val unique = LinkedHashMap<String, String>()
+                for (ri in resolved) {
+                    val pkg = ri.activityInfo?.packageName ?: continue
+                    if (pkg == packageName) continue
+                    val label = ri.loadLabel(pm)?.toString()?.trim().orEmpty().ifBlank { pkg }
+                    unique[pkg] = label
+                }
+                unique.entries.sortedBy { it.value.lowercase() }
+            }
+
+            if (apps.isEmpty()) {
+                Toast.makeText(this@MainActivity, "未读取到可选择的应用列表", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val current = NotificationMirrorPrefs.getWhitelist(this@MainActivity).toMutableSet()
+            val labels = apps.map { "${it.value} (${it.key})" }.toTypedArray()
+            val checked = apps.map { current.contains(it.key) }.toBooleanArray()
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("选择要镜像到电脑的应用")
+                .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                    val pkg = apps[which].key
+                    if (isChecked) current.add(pkg) else current.remove(pkg)
+                }
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存") { _, _ ->
+                    NotificationMirrorPrefs.setWhitelist(this@MainActivity, current)
+                    updateNotifMirrorUi()
+                    Toast.makeText(this@MainActivity, "已保存 ${current.size} 个白名单应用", Toast.LENGTH_SHORT).show()
+                }
+                .show()
+        }
+    }
+
     private fun requestOrCheckShizuku() {
         if (!hotspotController.isShizukuAvailable()) {
             Toast.makeText(this, "Shizuku 服务未运行，请先启动 Shizuku", Toast.LENGTH_SHORT).show()
@@ -245,6 +403,26 @@ class MainActivity : AppCompatActivity() {
             Shizuku.requestPermission(100)
         } else {
             Toast.makeText(this, "Shizuku 已授权就绪", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm != null && pm.isIgnoringBatteryOptimizations(packageName)) {
+            Toast.makeText(this, "AirTether 已在电池优化白名单中", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val opened = runCatching {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }.isSuccess
+        if (!opened) {
+            runCatching {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                )
+            }
         }
     }
 

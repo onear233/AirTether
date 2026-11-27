@@ -12,6 +12,9 @@ public partial class FlyoutWindow : Window
     private readonly BleHotspotClient _client;
     private readonly AppSettings _settings;
     private readonly Func<Task> _toggleHotspotAsync;
+    private readonly Func<Task> _sendClipboardAsync;
+    private readonly Func<Task> _sendFileAsync;
+    private readonly Action _openSettingsAction;
     private readonly Action _exitAction;
 
     public DateTime LastHiddenUtc { get; private set; } = DateTime.MinValue;
@@ -20,12 +23,18 @@ public partial class FlyoutWindow : Window
         BleHotspotClient client,
         AppSettings settings,
         Func<Task> toggleHotspotAsync,
+        Func<Task> sendClipboardAsync,
+        Func<Task> sendFileAsync,
+        Action openSettingsAction,
         Action exitAction)
     {
         InitializeComponent();
         _client = client;
         _settings = settings;
         _toggleHotspotAsync = toggleHotspotAsync;
+        _sendClipboardAsync = sendClipboardAsync;
+        _sendFileAsync = sendFileAsync;
+        _openSettingsAction = openSettingsAction;
         _exitAction = exitAction;
 
         Deactivated += (_, _) =>
@@ -81,7 +90,7 @@ public partial class FlyoutWindow : Window
     {
         var workArea = SystemParameters.WorkArea;
         double w = ActualWidth > 0 ? ActualWidth : Width;
-        double h = ActualHeight > 0 ? ActualHeight : 380;
+        double h = ActualHeight > 0 ? ActualHeight : 420;
 
         Left = workArea.Right - w - 10;
         Top = workArea.Bottom - h - 10;
@@ -120,14 +129,24 @@ public partial class FlyoutWindow : Window
             _ => _client.IsScanning ? "正在扫描附近的手机 BLE 服务..." : "点击“扫描设备”以连接手机"
         };
 
-        TbBattery.Text = connected && st.BatteryPercent >= 0 ? $"电量 {st.BatteryPercent}%" : "";
+        if (connected && st.BatteryPercent >= 0)
+        {
+            TbBattery.Text = st.IsCharging ? $"充电中 {st.BatteryPercent}%" : $"电量 {st.BatteryPercent}%";
+        }
+        else
+        {
+            TbBattery.Text = "";
+        }
 
         string displaySsid = !string.IsNullOrWhiteSpace(st.Ssid)
             ? st.Ssid
             : _settings.FallbackHotspotSsid;
 
-        // Hotspot Tile
+        // Hotspot Tile & Quick Actions
         BtnHotspotTile.IsEnabled = connected;
+        BtnSendClipboard.IsEnabled = connected;
+        BtnSendFile.IsEnabled = connected;
+
         if (!connected)
         {
             BtnHotspotTile.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x2D, 0x2D));
@@ -184,6 +203,19 @@ public partial class FlyoutWindow : Window
         BtnHotspotTile.IsEnabled = _client.ConnectionState == BleConnectionState.Connected;
     }
 
+    private async void BtnSendClipboard_Click(object sender, RoutedEventArgs e)
+    {
+        if (_client.ConnectionState != BleConnectionState.Connected) return;
+        await _sendClipboardAsync();
+    }
+
+    private async void BtnSendFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_client.ConnectionState != BleConnectionState.Connected) return;
+        Hide();
+        await _sendFileAsync();
+    }
+
     private void BtnScan_Click(object sender, RoutedEventArgs e)
     {
         if (_client.IsScanning)
@@ -219,10 +251,7 @@ public partial class FlyoutWindow : Window
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        Hide();
-        var dlg = new SettingsWindow(_settings);
-        dlg.ShowDialog();
-        RefreshUi();
+        _openSettingsAction();
     }
 
     private void BtnExit_Click(object sender, RoutedEventArgs e)

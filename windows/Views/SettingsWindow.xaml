@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AirTether 设置"
         Icon="pack://application:,,,/Assets/AirTether.ico"
-        Width="360"
+        Width="400"
         SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
@@ -22,7 +22,7 @@
 
         <StackPanel>
             <!-- Title Row -->
-            <Grid Margin="0,0,0,16">
+            <Grid Margin="0,0,0,14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -50,28 +50,28 @@
                        FontFamily="Segoe UI, Microsoft YaHei UI"
                        FontSize="13"
                        FontWeight="SemiBold"
-                       Margin="0,0,0,10"/>
+                       Margin="0,0,0,8"/>
 
             <CheckBox x:Name="ChkAutoReconnect"
                       Content="自动重连上次的设备"
                       Foreground="#F0FFFFFF"
                       FontFamily="Segoe UI, Microsoft YaHei UI"
-                      FontSize="13"
-                      Margin="0,0,0,10"/>
+                      FontSize="12.5"
+                      Margin="0,0,0,8"/>
 
             <CheckBox x:Name="ChkAutoConnectWifi"
                       Content="打开热点后电脑自动连接热点"
                       Foreground="#F0FFFFFF"
                       FontFamily="Segoe UI, Microsoft YaHei UI"
-                      FontSize="13"
-                      Margin="0,0,0,12"/>
+                      FontSize="12.5"
+                      Margin="0,0,0,8"/>
 
             <TextBlock Text="指定热点 Wi-Fi 名称（留空则自动使用手机上报的 SSID）"
                        Foreground="#99FFFFFF"
                        FontFamily="Segoe UI, Microsoft YaHei UI"
                        FontSize="11.5"
                        TextWrapping="Wrap"
-                       Margin="0,0,0,6"/>
+                       Margin="0,0,0,5"/>
 
             <TextBox x:Name="TbFallbackSsid"
                      Background="#2B2B2B"
@@ -79,11 +79,156 @@
                      CaretBrush="White"
                      BorderBrush="#44FFFFFF"
                      BorderThickness="1"
-                     Padding="8,6"
+                     Padding="8,5"
                      FontFamily="Segoe UI, Microsoft YaHei UI"
-                     FontSize="13"
+                     FontSize="12.5"
                      MaxLength="32"
-                     Margin="0,0,0,18"/>
+                     Margin="0,0,0,14"/>
+
+            <Border Height="1" Background="#22FFFFFF" Margin="0,0,0,12"/>
+
+            <!-- Section 2: Notifications, Battery & Handoff -->
+            <TextBlock Text="通知镜像、电量与接力"
+                       Foreground="#CCFFFFFF"
+                       FontFamily="Segoe UI, Microsoft YaHei UI"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,8"/>
+
+            <CheckBox x:Name="ChkNotifMirror"
+                      Content="启用手机白名单通知镜像（支持桌面一键清除）"
+                      Foreground="#F0FFFFFF"
+                      FontFamily="Segoe UI, Microsoft YaHei UI"
+                      FontSize="12.5"
+                      Margin="0,0,0,8"/>
+
+            <CheckBox x:Name="ChkAutoOpenUrl"
+                      Content="收到手机网页链接时自动用浏览器打开"
+                      Foreground="#F0FFFFFF"
+                      FontFamily="Segoe UI, Microsoft YaHei UI"
+                      FontSize="12.5"
+                      Margin="0,0,0,8"/>
+
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="52"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <CheckBox x:Name="ChkBatteryAlerts"
+                          Grid.Column="0"
+                          Content="低电量与充满电桌面提醒"
+                          Foreground="#F0FFFFFF"
+                          FontFamily="Segoe UI, Microsoft YaHei UI"
+                          FontSize="12.5"
+                          VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Column="1"
+                           Text="低电阈值"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="8,0,6,0"/>
+
+                <TextBox x:Name="TbLowBattery"
+                         Grid.Column="2"
+                         Background="#2B2B2B"
+                         Foreground="White"
+                         CaretBrush="White"
+                         BorderBrush="#44FFFFFF"
+                         BorderThickness="1"
+                         Padding="4,3"
+                         TextAlignment="Center"
+                         FontSize="12"/>
+
+                <TextBlock Grid.Column="3"
+                           Text="%"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="4,0,0,0"/>
+            </Grid>
+
+            <Border Height="1" Background="#22FFFFFF" Margin="0,0,0,12"/>
+
+            <!-- Section 3: Proximity Auto-Lock -->
+            <TextBlock Text="离开自动锁屏（BLE 近场感应）"
+                       Foreground="#CCFFFFFF"
+                       FontFamily="Segoe UI, Microsoft YaHei UI"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,8"/>
+
+            <CheckBox x:Name="ChkProximityLock"
+                      Content="手机远离或意外断连超时后自动锁屏"
+                      Foreground="#F0FFFFFF"
+                      FontFamily="Segoe UI, Microsoft YaHei UI"
+                      FontSize="12.5"
+                      Margin="0,0,0,8"/>
+
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="56"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="48"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="信号阈值"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"/>
+
+                <TextBox x:Name="TbRssiThreshold"
+                         Grid.Column="1"
+                         Background="#2B2B2B"
+                         Foreground="White"
+                         CaretBrush="White"
+                         BorderBrush="#44FFFFFF"
+                         BorderThickness="1"
+                         Padding="4,3"
+                         TextAlignment="Center"
+                         FontSize="12"/>
+
+                <TextBlock Grid.Column="2"
+                           Text="dBm"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="4,0,0,0"/>
+
+                <TextBlock Grid.Column="4"
+                           Text="离开延迟"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="8,0,6,0"/>
+
+                <TextBox x:Name="TbLockDelay"
+                         Grid.Column="5"
+                         Background="#2B2B2B"
+                         Foreground="White"
+                         CaretBrush="White"
+                         BorderBrush="#44FFFFFF"
+                         BorderThickness="1"
+                         Padding="4,3"
+                         TextAlignment="Center"
+                         FontSize="12"/>
+
+                <TextBlock Grid.Column="6"
+                           Text="秒"
+                           Foreground="#99FFFFFF"
+                           FontSize="11.5"
+                           VerticalAlignment="Center"
+                           Margin="4,0,0,0"/>
+            </Grid>
 
             <!-- Divider -->
             <Border Height="1" Background="#22FFFFFF" Margin="0,0,0,14"/>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -5,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Security;
+using System.Text.Json;
 using AirTether.Models;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
@@ -128,6 +130,193 @@ public sealed class IncomingCallNotifier
         catch
         {
             // Ignore
+        }
+    }
+
+    public void ShowMirroredNotification(string notifKey, string appName, string title, string body, string deviceName)
+    {
+        EnsureRegistered();
+        try
+        {
+            string header = string.IsNullOrWhiteSpace(appName) ? "手机通知" : SecurityElement.Escape(appName);
+            string escTitle = SecurityElement.Escape(string.IsNullOrWhiteSpace(title) ? appName : title);
+            string escBody = SecurityElement.Escape(body);
+            string escDevice = SecurityElement.Escape(string.IsNullOrWhiteSpace(deviceName) ? "手机" : deviceName);
+
+            string xmlString = $"""
+                <toast>
+                    <visual>
+                        <binding template="ToastGeneric">
+                            <text>{escTitle}</text>
+                            <text>{escBody}</text>
+                            <text placement="attribution">{header} · 来自 {escDevice}</text>
+                        </binding>
+                    </visual>
+                    <actions>
+                        <action content="忽略并清除手机通知" arguments="action=dismiss_notif" activationType="foreground"/>
+                    </actions>
+                </toast>
+                """;
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(xmlString);
+            var toast = new ToastNotification(xmlDoc);
+            toast.Activated += async (_, args) =>
+            {
+                if (args is ToastActivatedEventArgs act &&
+                    act.Arguments.Contains("action=dismiss_notif", StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(notifKey))
+                {
+                    string json = JsonSerializer.Serialize(new { t = "notif_dismiss", key = notifKey });
+                    await _client.SendEventJsonAsync(json);
+                }
+            };
+
+            ToastNotificationManager.CreateToastNotifier(AppId).Show(toast);
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    public void ShowBatteryAlert(string title, string body, string deviceName)
+    {
+        EnsureRegistered();
+        try
+        {
+            string escTitle = SecurityElement.Escape(title);
+            string escBody = SecurityElement.Escape(body);
+            string escDevice = SecurityElement.Escape(string.IsNullOrWhiteSpace(deviceName) ? "手机" : deviceName);
+
+            string xmlString = $"""
+                <toast>
+                    <visual>
+                        <binding template="ToastGeneric">
+                            <text>{escTitle}</text>
+                            <text>{escBody}</text>
+                            <text placement="attribution">电量提醒 · 来自 {escDevice}</text>
+                        </binding>
+                    </visual>
+                </toast>
+                """;
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(xmlString);
+            ToastNotificationManager.CreateToastNotifier(AppId).Show(new ToastNotification(xmlDoc));
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    public void ShowClipboardToast(string text, bool isUrl, string deviceName)
+    {
+        EnsureRegistered();
+        try
+        {
+            string escTitle = isUrl ? "收到手机网页链接（已复制）" : "已同步手机剪贴板";
+            string preview = text.Length > 140 ? text[..140] + "..." : text;
+            string escBody = SecurityElement.Escape(preview);
+            string escDevice = SecurityElement.Escape(string.IsNullOrWhiteSpace(deviceName) ? "手机" : deviceName);
+
+            string actionsXml = isUrl
+                ? """<actions><action content="在浏览器中打开" arguments="action=open_url" activationType="foreground"/></actions>"""
+                : "";
+
+            string xmlString = $"""
+                <toast>
+                    <visual>
+                        <binding template="ToastGeneric">
+                            <text>{escTitle}</text>
+                            <text>{escBody}</text>
+                            <text placement="attribution">接力 · 来自 {escDevice}</text>
+                        </binding>
+                    </visual>
+                    {actionsXml}
+                </toast>
+                """;
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(xmlString);
+            var toast = new ToastNotification(xmlDoc);
+            if (isUrl)
+            {
+                toast.Activated += (_, _) =>
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(text) { UseShellExecute = true });
+                    }
+                    catch
+                    {
+                        // Ignore
+                    }
+                };
+            }
+            ToastNotificationManager.CreateToastNotifier(AppId).Show(toast);
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    public void ShowFileTransferToast(string title, string body, string? folderToOpen = null)
+    {
+        EnsureRegistered();
+        try
+        {
+            string escTitle = SecurityElement.Escape(title);
+            string escBody = SecurityElement.Escape(body);
+            string actionsXml = !string.IsNullOrWhiteSpace(folderToOpen)
+                ? """<actions><action content="打开保存文件夹" arguments="action=open_folder" activationType="foreground"/></actions>"""
+                : "";
+
+            string xmlString = $"""
+                <toast>
+                    <visual>
+                        <binding template="ToastGeneric">
+                            <text>{escTitle}</text>
+                            <text>{escBody}</text>
+                            <text placement="attribution">AirTether 无网快传</text>
+                        </binding>
+                    </visual>
+                    {actionsXml}
+                </toast>
+                """;
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(xmlString);
+            var toast = new ToastNotification(xmlDoc);
+            if (!string.IsNullOrWhiteSpace(folderToOpen))
+            {
+                toast.Activated += (_, _) =>
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo("explorer.exe", folderToOpen) { UseShellExecute = true });
+                    }
+                    catch
+                    {
+                        // Ignore
+                    }
+                };
+            }
+            ToastNotificationManager.CreateToastNotifier(AppId).Show(toast);
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    private void EnsureRegistered()
+    {
+        if (!_toastRegistered)
+        {
+            _toastRegistered = EnsureStartMenuShortcut();
         }
     }
 

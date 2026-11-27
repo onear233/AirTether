@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Forms;
 using AirTether.Models;
@@ -20,6 +21,9 @@ public partial class App : System.Windows.Application
     private BleHotspotClient? _client;
     private IncomingCallNotifier? _callNotifier;
     private WifiAutoConnector? _wifiConnector;
+    private ProximityLockService? _proximityLock;
+    private BatteryAlertService? _batteryAlert;
+    private FileTransferService? _fileTransfer;
     private FlyoutWindow? _flyout;
 
     private NotifyIcon? _signalNotifyIcon;
@@ -60,15 +64,30 @@ public partial class App : System.Windows.Application
         _client = new BleHotspotClient(_settings);
         _callNotifier = new IncomingCallNotifier(_client);
         _wifiConnector = new WifiAutoConnector();
-        _flyout = new FlyoutWindow(_client, _settings, ToggleHotspotFromUiAsync, ExitApplication);
+        _proximityLock = new ProximityLockService(_client, _settings);
+        _batteryAlert = new BatteryAlertService(_settings, _callNotifier);
+        _fileTransfer = new FileTransferService(_client, _settings, _wifiConnector, _callNotifier, ResolveTargetSsid);
+
+        _flyout = new FlyoutWindow(
+            _client,
+            _settings,
+            ToggleHotspotFromUiAsync,
+            SendClipboardToPhoneAsync,
+            SendFileToPhoneFromPickerAsync,
+            OpenSettingsDialog,
+            ExitApplication);
 
         _wifiConnector.StatusChanged += msg => _flyout.SetWifiStatusMessage(msg);
+        _proximityLock.StatusChanged += msg => _flyout.SetWifiStatusMessage(msg);
+        _fileTransfer.StatusChanged += msg => _flyout.SetWifiStatusMessage(msg);
 
         SetupTrayIcons();
 
         _client.StateChanged += () => Dispatcher.BeginInvoke(OnClientStateChanged);
         _client.CallStateChanged += call => Dispatcher.BeginInvoke(() =>
             _callNotifier?.HandleCallState(call, _client?.ConnectedDeviceName ?? "手机"));
+        _client.EventJsonReceived += json => Dispatcher.BeginInvoke(() => OnBleEventJsonReceived(json));
+
         UpdateTrayIcons();
 
         if (_settings.AutoReconnect && _settings.LastDeviceAddress.HasValue)
@@ -79,6 +98,146 @@ public partial class App : System.Windows.Application
         if (Debugger.IsAttached)
         {
             _flyout.ShowFlyout();
+        }
+    }
+
+    private async Task SendClipboardToPhoneAsync()
+    {
+        if (_client is null || _client.ConnectionState != BleConnectionState.Connected)
+            return;
+
+        string text = "";
+        try
+        {
+            if (System.Windows.Clipboard.ContainsText())
+            {
+                text = System.Windows.Clipboard.GetText().Trim();
+            }
+        }
+        catch
+        {
+            // Ignore clipboard lock errors
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            _flyout?.SetWifiStatusMessage("电脑剪贴板为空");
+            return;
+        }
+
+        if (text.Length > 1200)
+        {
+            text = text[..1200];
+        }
+
+        bool isUrl = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+        string json = JsonSerializer.Serialize(new { t = "clip", text, open = isUrl });
+        bool ok = await _client.SendEventJsonAsync(json);
+        _flyout?.SetWifiStatusMessage(ok ? "已将剪贴板推送到手机" : "剪贴板推送失败");
+    }
+
+    private async Task SendFileToPhoneFromPickerAsync()
+    {
+        if (_client is null || _fileTransfer is null || _client.ConnectionState != BleConnectionState.Connected)
+            return;
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择要快传到手机的文件",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.FileName))
+        {
+            await _fileTransfer.SendFileToPhoneAsync(dialog.FileName);
+        }
+    }
+
+    private void OnBleEventJsonReceived(string json)
+    {
+        if (_settings is null || _callNotifier is null || _fileTransfer is null || _client is null)
+            return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            string type = root.TryGetProperty("t", out var tProp) ? tProp.GetString() ?? "" : "";
+            string deviceName = string.IsNullOrWhiteSpace(_client.ConnectedDeviceName) ? "手机" : _client.ConnectedDeviceName;
+
+            switch (type)
+            {
+                case "clip":
+                    {
+                        string text = root.TryGetProperty("text", out var txt) ? txt.GetString() ?? "" : "";
+                        bool open = root.TryGetProperty("open", out var op) && op.GetBoolean();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            try
+                            {
+                                System.Windows.Clipboard.SetText(text);
+                            }
+                            catch
+                            {
+                                // Ignore clipboard lock
+                            }
+                            bool isUrl = text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+                            if (isUrl && (open || _settings.AutoOpenHandoffUrl))
+                            {
+                                try
+                                {
+                                    Process.Start(new ProcessStartInfo(text) { UseShellExecute = true });
+                                }
+                                catch
+                                {
+                                    // Ignore
+                                }
+                            }
+                            _callNotifier.ShowClipboardToast(text, isUrl, deviceName);
+                            _flyout?.SetWifiStatusMessage("已同步手机剪贴板");
+                        }
+                        break;
+                    }
+                case "notif":
+                    {
+                        if (!_settings.EnableNotificationMirror) break;
+                        string key = root.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+                        string app = root.TryGetProperty("app", out var a) ? a.GetString() ?? "手机通知" : "手机通知";
+                        string title = root.TryGetProperty("title", out var ti) ? ti.GetString() ?? "" : "";
+                        string body = root.TryGetProperty("text", out var bd) ? bd.GetString() ?? "" : "";
+                        _callNotifier.ShowMirroredNotification(key, app, title, body, deviceName);
+                        break;
+                    }
+                case "xfer_ready":
+                    {
+                        string ip = root.TryGetProperty("ip", out var ipP) ? ipP.GetString() ?? "" : "";
+                        int port = root.TryGetProperty("port", out var ptP) ? ptP.GetInt32() : 0;
+                        string token = root.TryGetProperty("token", out var tkP) ? tkP.GetString() ?? "" : "";
+                        string name = root.TryGetProperty("name", out var nmP) ? nmP.GetString() ?? "file.bin" : "file.bin";
+                        long size = root.TryGetProperty("size", out var szP) ? szP.GetInt64() : -1;
+                        bool needHotspot = root.TryGetProperty("needHotspot", out var nhP) && nhP.GetBoolean();
+                        if (!string.IsNullOrWhiteSpace(ip) && port > 0 && !string.IsNullOrWhiteSpace(token))
+                        {
+                            _fileTransfer.HandleIncomingTransferOffer(ip, port, token, name, size, needHotspot);
+                        }
+                        break;
+                    }
+                case "xfer_done":
+                    {
+                        bool ok = root.TryGetProperty("ok", out var okP) && okP.GetBoolean();
+                        string msg = root.TryGetProperty("msg", out var mP) ? mP.GetString() ?? "" : "";
+                        _fileTransfer.OnPhoneTransferAck(ok, msg);
+                        break;
+                    }
+            }
+        }
+        catch
+        {
+            // Ignore malformed event JSON
         }
     }
 
@@ -112,6 +271,8 @@ public partial class App : System.Windows.Application
         UpdateTrayIcons();
 
         if (_client is null || _settings is null) return;
+
+        _batteryAlert?.HandleStatus(_client.ConnectionState, _client.CurrentStatus, _client.ConnectedDeviceName);
 
         if (_client.ConnectionState != BleConnectionState.Connected)
         {
@@ -164,6 +325,8 @@ public partial class App : System.Windows.Application
                 _flyout?.ShowFlyout();
             }
         });
+        signalMenu.Items.Add("发送剪贴板到手机", null, async (_, _) => await SendClipboardToPhoneAsync());
+        signalMenu.Items.Add("无网快传文件到手机...", null, async (_, _) => await SendFileToPhoneFromPickerAsync());
         signalMenu.Items.Add("设置...", null, (_, _) => OpenSettingsDialog());
         signalMenu.Items.Add(new ToolStripSeparator());
         signalMenu.Items.Add("退出", null, (_, _) => ExitApplication());
@@ -204,7 +367,11 @@ public partial class App : System.Windows.Application
         if (_settings is null) return;
         _flyout?.Hide();
         var dlg = new SettingsWindow(_settings);
-        dlg.ShowDialog();
+        if (dlg.ShowDialog() == true)
+        {
+            _proximityLock?.OnSettingsUpdated();
+            _batteryAlert?.Reset();
+        }
         _flyout?.RefreshUi();
     }
 
@@ -264,7 +431,9 @@ public partial class App : System.Windows.Application
         {
             var st = _client.CurrentStatus;
             string hs = st.HotspotEnabled ? "热点已开" : "热点已关";
-            string bat = st.BatteryPercent >= 0 ? $" · 电量{st.BatteryPercent}%" : "";
+            string bat = st.BatteryPercent >= 0
+                ? (st.IsCharging ? $" · 充电{st.BatteryPercent}%" : $" · 电量{st.BatteryPercent}%")
+                : "";
             tooltip = $"{_client.ConnectedDeviceName}\n{st.NetworkLabel} ({st.SignalBars}/4) · {hs}{bat}";
         }
         else if (_client.ConnectionState == BleConnectionState.Connecting)
@@ -292,6 +461,8 @@ public partial class App : System.Windows.Application
         DisposeNotifyIcon(ref _signalNotifyIcon, ref _currentSignalIcon);
         DisposeNotifyIcon(ref _networkNotifyIcon, ref _currentNetworkIcon);
 
+        _fileTransfer?.Dispose();
+        _proximityLock?.Dispose();
         _wifiConnector?.Dispose();
         _flyout?.Close();
         _client?.Dispose();
@@ -317,6 +488,8 @@ public partial class App : System.Windows.Application
     {
         DisposeNotifyIcon(ref _signalNotifyIcon, ref _currentSignalIcon);
         DisposeNotifyIcon(ref _networkNotifyIcon, ref _currentNetworkIcon);
+        _fileTransfer?.Dispose();
+        _proximityLock?.Dispose();
         _wifiConnector?.Dispose();
         _client?.Dispose();
         base.OnExit(e);

@@ -1,12 +1,16 @@
 package com.bthotspot.android.protocol
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 object BleProtocol {
     val SERVICE_UUID: UUID = UUID.fromString("A0B10001-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
     val STATUS_CHAR_UUID: UUID = UUID.fromString("A0B10002-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
     val COMMAND_CHAR_UUID: UUID = UUID.fromString("A0B10003-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
     val CALL_CHAR_UUID: UUID = UUID.fromString("A0B10004-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
+    val EVENT_UP_CHAR_UUID: UUID = UUID.fromString("A0B10005-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
+    val EVENT_DOWN_CHAR_UUID: UUID = UUID.fromString("A0B10006-5C7E-4A3B-9E1D-7F8A9B0C1D2E")
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     const val PROTOCOL_VERSION: Byte = 0x01
@@ -57,13 +61,14 @@ object BleProtocol {
         val signalBars: Int = 0,
         val networkType: NetworkType = NetworkType.NONE,
         val batteryPercent: Int = -1,
-        val ssid: String = ""
+        val ssid: String = "",
+        val isCharging: Boolean = false
     )
 
     /**
      * Encodes [HotspotStatus] into a compact binary payload:
      * [0] version (0x01)
-     * [1] hotspotState (0 = OFF, 1 = ON, 2 = TRANSITIONING)
+     * [1] flags: bits 0..1 = hotspotState (0 = OFF, 1 = ON, 2 = TRANSITIONING), bit 2 (0x04) = isCharging
      * [2] signalBars (0..4)
      * [3] networkType (0..4)
      * [4] batteryPercent (0..100, or 255 if unknown)
@@ -76,13 +81,16 @@ object BleProtocol {
         val rawSsid = status.ssid.toByteArray(Charsets.UTF_8)
         val ssidLen = rawSsid.size.coerceAtMost(maxSsidBytes)
 
-        val result = ByteArray(headerSize + ssidLen)
-        result[0] = PROTOCOL_VERSION
-        result[1] = when {
+        val hsBits = when {
             status.isTransitioning -> 2
             status.hotspotEnabled -> 1
             else -> 0
-        }.toByte()
+        }
+        val chargingBit = if (status.isCharging) 0x04 else 0
+
+        val result = ByteArray(headerSize + ssidLen)
+        result[0] = PROTOCOL_VERSION
+        result[1] = (hsBits or chargingBit).toByte()
         result[2] = status.signalBars.coerceIn(0, 4).toByte()
         result[3] = status.networkType.code
         result[4] = if (status.batteryPercent in 0..100) status.batteryPercent.toByte() else 0xFF.toByte()
@@ -123,5 +131,89 @@ object BleProtocol {
             System.arraycopy(rawName, 0, result, 4 + numLen, nameLen)
         }
         return result
+    }
+}
+
+/**
+ * Simple BLE chunked frame codec for UTF-8 JSON payloads over EVENT_UP / EVENT_DOWN characteristics.
+ * Header per packet (3 bytes): [0]=msgId (1..255), [1]=chunkIndex, [2]=totalChunks.
+ */
+class BleFrameCodec {
+    private val nextMsgId = AtomicInteger(1)
+
+    private class PendingMessage(
+        val totalChunks: Int,
+        val createdAtMs: Long = System.currentTimeMillis()
+    ) {
+        val parts = arrayOfNulls<ByteArray>(totalChunks)
+        var receivedCount = 0
+    }
+
+    private val pending = ConcurrentHashMap<Int, PendingMessage>()
+
+    fun encode(json: String, maxChunkSize: Int = 20): List<ByteArray> {
+        val payload = json.toByteArray(Charsets.UTF_8)
+        val dataPerChunk = (maxChunkSize - 3).coerceIn(17, 240)
+        val totalChunks = ((payload.size + dataPerChunk - 1) / dataPerChunk).coerceAtLeast(1)
+        if (totalChunks > 64) return emptyList()
+
+        val msgId = ((nextMsgId.getAndIncrement() and 0xFF).takeIf { it != 0 } ?: 1).toByte()
+        val chunks = ArrayList<ByteArray>(totalChunks)
+        for (i in 0 until totalChunks) {
+            val start = i * dataPerChunk
+            val len = (payload.size - start).coerceAtMost(dataPerChunk).coerceAtLeast(0)
+            val pkt = ByteArray(3 + len)
+            pkt[0] = msgId
+            pkt[1] = i.toByte()
+            pkt[2] = totalChunks.toByte()
+            if (len > 0) {
+                System.arraycopy(payload, start, pkt, 3, len)
+            }
+            chunks.add(pkt)
+        }
+        return chunks
+    }
+
+    fun feedChunk(packet: ByteArray?): String? {
+        if (packet == null || packet.size < 3) return null
+        val msgId = packet[0].toInt() and 0xFF
+        val index = packet[1].toInt() and 0xFF
+        val total = packet[2].toInt() and 0xFF
+        if (total <= 0 || total > 64 || index >= total) return null
+
+        val data = packet.copyOfRange(3, packet.size)
+        if (total == 1) {
+            return String(data, Charsets.UTF_8)
+        }
+
+        // Purge stale partial messages (>15s)
+        val now = System.currentTimeMillis()
+        pending.entries.removeIf { now - it.value.createdAtMs > 15_000 }
+
+        val entry = pending.computeIfAbsent(msgId) { PendingMessage(total) }
+        synchronized(entry) {
+            if (entry.totalChunks != total) {
+                pending.remove(msgId)
+                return null
+            }
+            if (entry.parts[index] == null) {
+                entry.parts[index] = data
+                entry.receivedCount++
+            }
+            if (entry.receivedCount == total) {
+                pending.remove(msgId)
+                val totalBytes = entry.parts.sumOf { it?.size ?: 0 }
+                val merged = ByteArray(totalBytes)
+                var offset = 0
+                for (part in entry.parts) {
+                    if (part != null) {
+                        System.arraycopy(part, 0, merged, offset, part.size)
+                        offset += part.size
+                    }
+                }
+                return String(merged, Charsets.UTF_8)
+            }
+        }
+        return null
     }
 }

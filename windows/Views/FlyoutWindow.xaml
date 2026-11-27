@@ -192,6 +192,51 @@
                 </Grid>
             </Button>
 
+            <!-- Quick Interconnect Actions: Clipboard Handoff & Fast File Transfer -->
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="BtnSendClipboard"
+                        Grid.Column="0"
+                        Style="{StaticResource Win10FlatButton}"
+                        Height="36"
+                        Click="BtnSendClipboard_Click"
+                        ToolTip="将当前电脑剪贴板或网址推送到手机">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE77F;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="13"
+                                   Margin="0,0,6,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="发剪贴板到手机"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="BtnSendFile"
+                        Grid.Column="2"
+                        Style="{StaticResource Win10FlatButton}"
+                        Height="36"
+                        Click="BtnSendFile_Click"
+                        ToolTip="通过 BLE 握手 + 热点/局域网高速传输文件到手机">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE898;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="13"
+                                   Margin="0,0,6,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="无网快传文件"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
             <!-- Divider -->
             <Border Height="1" Background="#22FFFFFF" Margin="0,0,0,12"/>
 
